@@ -46,6 +46,7 @@ roc <- function(pred.s, true.y)
 
 #Read data
 data <- read.table("marvel-wikia-data.csv", sep = ",", stringsAsFactors = TRUE)
+data <- data[rowSums(is.na(data) | data == "") == 0,]
 #Assigning names from the first row
 colnames(data) <- as.character(unlist(data[1,]))
 data = data[-1, ]
@@ -105,6 +106,34 @@ summary(myclassifier_gbm)
 pred_labels6 <- predict(myclassifier_gbm, testing,n.trees = 10)   # predict labels
 round(pred_labels6)
 #ROC
+ci.tree.d.roc <- roc(pred_labels6, testing$ALIGN)
+plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
+auc(ci.tree.d.roc)
+
+#RRF
+training$ID <- factor(training$ID)
+training$ALIGN <- factor(training$ALIGN)
+training$EYE <- factor(training$EYE)
+training$HAIR <- factor(training$HAIR)
+training$SEX <- factor(training$SEX)
+training$ALIVE <- factor(training$ALIVE)
+
+myclassifier_rrf <- RRF(ALIGN ~ ., data=training)
+print(myclassifier_rrf)                     # show classification outcome
+#summary(myclassifier_rrf)
+importance(myclassifier_rrf)                # importance of each predictor 
+pred_labels3 <- predict(myclassifier_rrf, testing)# predict labels
+
+ci.tree.d.roc <- roc(pred_labels6, testing$ALIGN)
+plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
+auc(ci.tree.d.roc)
+
+#Regularized Discriminant Analysis
+myclassifier_rda <- rda(ALIGN ~ ., data=training)
+print(myclassifier_rda)                     # show classification outcome
+summary(myclassifier_rda)
+pred_labels5 <- predict(myclassifier_rda, testing)   # predict labels
+
 ci.tree.d.roc <- roc(pred_labels6, testing$ALIGN)
 plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
 auc(ci.tree.d.roc)
