@@ -1,4 +1,4 @@
-pkglist<-c("rpart", "rpart.plot", "RRF", "klaR", "gbm")
+pkglist<-c("rpart", "rpart.plot", "RRF", "klaR", "gbm", "readr", "dplyr")
 pkgcheck <- pkglist %in% row.names(installed.packages())
 #COMMMENT the line below if you installed packages earlier e.g on root
 for(i in pkglist[!pkgcheck]){install.packages(i,depend=TRUE)}
@@ -44,22 +44,59 @@ roc <- function(pred.s, true.y)
 }
 
 
-#Read data
-data <- read.table("marvel-wikia-data.csv", sep = ",", stringsAsFactors = TRUE)
-data <- data[rowSums(is.na(data) | data == "") == 0,]
-#Assigning names from the first row
-colnames(data) <- as.character(unlist(data[1,]))
-data = data[-1, ]
-#Remove attributes that are not needed
-data$page_id <- NULL
-data$name <- NULL
-data$urlslug <- NULL
-data$GSM <- NULL
-data$APPEARANCES <- as.numeric(data$APPEARANCES)
-data$Year <- as.numeric(data$Year)
+prepare_data = function(filename){
+  #Read data
+  data <- read.table(filename, sep = ",", stringsAsFactors = TRUE)
+  #Assigning names from the first row
+  colnames(data) <- as.character(unlist(data[1,]))
+  data = data[-1, ]
+  #Remove attributes that are not needed
+  data$page_id <- NULL
+  data$urlslug <- NULL
+  data$name <- NULL
+  data$GSM <- NULL
+  data$APPEARANCES <- as.numeric(data$APPEARANCES)
+  data$Year <- as.numeric(as.character(data$Year))
+  
+  data <- data[rowSums(is.na(data[,c('ALIGN', 'ALIVE')]) | data[,c('ALIGN', 'ALIVE')] == "") == 0,]
+  
+  data$HAIR[data$HAIR == 'Bald'] <- 'No Hair'
+  # TODO: Unify some hair colors?
+  
+  # Unify sex column
+  levels(data$SEX)[levels(data$SEX) %in% c('Agender Characters', 'Genderfluid Characters', 
+                                           'Genderless Characters', 'Transgender Characters')] <- 'Other'
+  
+  # Refactor first appearance column
+  colnames(data)[colnames(data) == 'FIRST APPEARANCE'] <- 'Month'
+  # Leave only month information
+  data$Month <- as.numeric(format(parse_date(as.character(data$Month), 
+                                             format = '%b-%y', locale = locale('en')), '%m'))
+  
+  # Drop unused factor levels
+  data[] <- lapply(data, function(x) if(is.factor(x)) factor(x) else x)
+  return(data)
+}
 
-#TODO CHANGE TO CORRECT FACTORS
-data$`FIRST APPEARANCE`  <- NULL
+data <- prepare_data("marvel-wikia-data.csv")
+x = data$name
+x <- sub('[)]$', '', sub('^[^(]*[(]', '', x))
+unique(x)
+tmp <- data$name[]
+tmp
+as.numeric(as.character(tmp))
+str(tmp)
+summary(tmp)
+str(data$Year)
+summary(data$Month)
+
+data[data$HAIR=='Bronze Hair',]
+
+
+
+data$Year <- as.numeric(data$Year)
+# data <- data[rowSums(is.na(data) | data == "") == 0,]
+
 
 
 #Divide data into training and testing sets
