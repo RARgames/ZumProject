@@ -1,4 +1,4 @@
-pkglist<-c("rpart", "rpart.plot", "RRF", "klaR", "gbm", "readr", "dplyr")
+pkglist<-c("rpart", "rpart.plot", "RRF", "klaR", "gbm", "readr", "dplyr", "arules", "randomForest")
 pkgcheck <- pkglist %in% row.names(installed.packages())
 #COMMMENT the line below if you installed packages earlier e.g on root
 for(i in pkglist[!pkgcheck]){install.packages(i,depend=TRUE)}
@@ -44,23 +44,29 @@ roc <- function(pred.s, true.y)
 }
 
 
-prepare_data = function(filename){
+prepare_data = function(marvel = TRUE){
   #Read data
-  data <- read.table(filename, sep = ",", stringsAsFactors = TRUE)
+  if(marvel) {
+    data <- read.table("marvel-wikia-data.csv", sep = ",", stringsAsFactors = TRUE)
+  } else {
+    data <- read.table("dc-wikia-data.csv", sep = ",", stringsAsFactors = TRUE)
+  }
   #Assigning names from the first row
   colnames(data) <- as.character(unlist(data[1,]))
   data = data[-1, ]
   #Remove attributes that are not needed
   data$page_id <- NULL
   data$urlslug <- NULL
-  data$name <- NULL
+  # data$name <- NULL
   data$GSM <- NULL
   data$APPEARANCES <- as.numeric(data$APPEARANCES)
   data$Year <- as.numeric(as.character(data$Year))
   
   data <- data[rowSums(is.na(data[,c('ALIGN', 'ALIVE')]) | data[,c('ALIGN', 'ALIVE')] == "") == 0,]
   
-  data$HAIR[data$HAIR == 'Bald'] <- 'No Hair'
+  if(marvel) {
+    data$HAIR[data$HAIR == 'Bald'] <- 'No Hair'
+  }
   # TODO: Unify some hair colors?
   
   # Unify sex column
@@ -70,33 +76,36 @@ prepare_data = function(filename){
   # Refactor first appearance column
   colnames(data)[colnames(data) == 'FIRST APPEARANCE'] <- 'Month'
   # Leave only month information
+  if(marvel) {
+    format <- '%b-%y'
+  } else {
+    format <- '%Y, %B'
+  }
   data$Month <- as.numeric(format(parse_date(as.character(data$Month), 
-                                             format = '%b-%y', locale = locale('en')), '%m'))
+                                             format = format, locale = locale('en')), '%m'))
   
   # Drop unused factor levels
   data[] <- lapply(data, function(x) if(is.factor(x)) factor(x) else x)
   return(data)
 }
 
-data <- prepare_data("marvel-wikia-data.csv")
-x = data$name
-x <- sub('[)]$', '', sub('^[^(]*[(]', '', x))
-unique(x)
-tmp <- data$name[]
-tmp
-as.numeric(as.character(tmp))
-str(tmp)
-summary(tmp)
-str(data$Year)
-summary(data$Month)
+data.m <- prepare_data()
+data.dc <- prepare_data(FALSE)
+data <- rbind(prepare_data(marvel = TRUE), prepare_data(marvel = FALSE))
 
-data[data$HAIR=='Bronze Hair',]
+get_popularity = function(data) {
+  # Get appearances per year since introduction
+  popularity <- data$APPEARANCES/(2014-data$Year)
+  
+  tertile <- quantile(popularity[!is.na(popularity)], c(0:3/3))
+  
+  return(discretize(popularity, method = "fixed", breaks = tertile, labels = c('Low', 'Medium', 'High')))
+}
 
+# Introduce new attributes
+data$Popularity <- get_popularity(data)
 
-
-data$Year <- as.numeric(data$Year)
-# data <- data[rowSums(is.na(data) | data == "") == 0,]
-
+data$IntroducedAfter1990 <- data$Year > 1990
 
 
 #Divide data into training and testing sets
@@ -154,6 +163,10 @@ training$EYE <- factor(training$EYE)
 training$HAIR <- factor(training$HAIR)
 training$SEX <- factor(training$SEX)
 training$ALIVE <- factor(training$ALIVE)
+
+x = Sys.time()
+training <- rfImpute(ALIGN  ~ ., training)
+print(Sys.time() - x)
 
 myclassifier_rrf <- RRF(ALIGN ~ ., data=training)
 print(myclassifier_rrf)                     # show classification outcome
