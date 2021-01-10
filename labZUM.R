@@ -1,4 +1,4 @@
-pkglist<-c("rpart", "rpart.plot", "RRF", "klaR", "gbm", "readr", "dplyr", "arules", "randomForest")
+pkglist<-c("arules", "randomForest", "rpart", "rpart.plot", "RRF", "klaR", "gbm", "readr", "dplyr")
 pkgcheck <- pkglist %in% row.names(installed.packages())
 #COMMMENT the line below if you installed packages earlier e.g on root
 for(i in pkglist[!pkgcheck]){install.packages(i,depend=TRUE)}
@@ -57,21 +57,12 @@ prepare_data = function(marvel = TRUE){
   #Remove attributes that are not needed
   data$page_id <- NULL
   data$urlslug <- NULL
-  # data$name <- NULL
+  data$name <- NULL
   data$GSM <- NULL
   data$APPEARANCES <- as.numeric(data$APPEARANCES)
   data$Year <- as.numeric(as.character(data$Year))
   
   data <- data[rowSums(is.na(data[,c('ALIGN', 'ALIVE')]) | data[,c('ALIGN', 'ALIVE')] == "") == 0,]
-  
-  if(marvel) {
-    data$HAIR[data$HAIR == 'Bald'] <- 'No Hair'
-  }
-  # TODO: Unify some hair colors?
-  
-  # Unify sex column
-  levels(data$SEX)[levels(data$SEX) %in% c('Agender Characters', 'Genderfluid Characters', 
-                                           'Genderless Characters', 'Transgender Characters')] <- 'Other'
   
   # Refactor first appearance column
   colnames(data)[colnames(data) == 'FIRST APPEARANCE'] <- 'Month'
@@ -84,28 +75,49 @@ prepare_data = function(marvel = TRUE){
   data$Month <- as.numeric(format(parse_date(as.character(data$Month), 
                                              format = format, locale = locale('en')), '%m'))
   
+  # Introduce new attributes
+  # Get appearances per year since introduction
+  popularity <- data$APPEARANCES/(2014-data$Year)
+  tertile <- quantile(popularity[!is.na(popularity)], c(0:3/3))
+  data$Popularity <- discretize(popularity, method = "fixed", breaks = tertile, labels = c('Low', 'Medium', 'High'))
+  
+  data$IntroducedAfter1990 <- factor(data$Year > 1990)
+  
+  return(data)
+}
+
+unify_values <- function(data) {
+  data$ALIGN[data$ALIGN == 'Reformed Criminals'] <- 'Good Characters'
+  
+  # Unify hair column
+  data$HAIR[data$HAIR == 'Bald'] <- 'No Hair'
+  data$HAIR[data$HAIR == 'Auburn Hair'] <- 'Red Hair'
+  data$HAIR[data$HAIR %in% c('Bronze Hair','Light Brown Hair','Reddish Brown Hair')] <- 'Brown Hair'
+  data$HAIR[data$HAIR %in% c('Gold Hair','Reddish Blond Hair','Strawberry Blond Hair',
+                             'Yellow Hair','Platinum Blond Hair')] <- 'Blond Hair'
+  levels(data$HAIR) <- c(levels(data$HAIR), 'Other')
+  data$HAIR[data$HAIR %in% c('Blue Hair','Dyed Hair','Magenta Hair','Orange-brown Hair','Orange Hair',
+                             'Pink Hair','Purple Hair','Silver Hair','Variable Hair','Violet Hair')] <- 'Other'
+  # Unify eyes column
+  data$EYE[data$EYE == 'Amber Eyes'] <- 'Brown Eyes'
+  data$EYE[data$EYE == 'Black Eyeballs'] <- 'Black Eyes'
+  data$EYE[data$EYE == 'Silver Eyes'] <- 'Grey Eyes'
+  data$EYE[data$EYE %in% c('Gold Eyes','Yellow Eyeballs')] <- 'Yellow Eyes'
+  data$EYE[data$EYE %in% c('Magenta Eyes','Pink Eyes','Violet Eyes')] <- 'Purple Eyes'
+  levels(data$EYE) <- c(levels(data$EYE), 'Other')
+  data$EYE[data$EYE %in% c('Compound Eyes', 'Multiple Eyes', 'No Eyes', 'One Eye', 'Orange Eyes', 
+                           'Variable Eyes', 'Auburn Hair', 'Photocellular Eyes')] <- 'Other'
+  # Unify sex column
+  levels(data$SEX)[levels(data$SEX) %in% c('Agender Characters', 'Genderfluid Characters', 
+                                           'Genderless Characters', 'Transgender Characters')] <- 'Other'
+  
   # Drop unused factor levels
   data[] <- lapply(data, function(x) if(is.factor(x)) factor(x) else x)
   return(data)
 }
 
-data.m <- prepare_data()
-data.dc <- prepare_data(FALSE)
 data <- rbind(prepare_data(marvel = TRUE), prepare_data(marvel = FALSE))
-
-get_popularity = function(data) {
-  # Get appearances per year since introduction
-  popularity <- data$APPEARANCES/(2014-data$Year)
-  
-  tertile <- quantile(popularity[!is.na(popularity)], c(0:3/3))
-  
-  return(discretize(popularity, method = "fixed", breaks = tertile, labels = c('Low', 'Medium', 'High')))
-}
-
-# Introduce new attributes
-data$Popularity <- get_popularity(data)
-
-data$IntroducedAfter1990 <- data$Year > 1990
+data <- unify_values(data)
 
 
 #Divide data into training and testing sets
@@ -115,8 +127,14 @@ testing <- data[rci<0.33,]
 
 #Rpart Tree (cp = 0.01 minsplit = 1)
 set.seed(12354)
+
 #classifier
-ci.tree.d <- rpart(ALIGN~., training, minsplit = 1, cp = 0.01)
+time.rpart.ms20 = Sys.time()
+ci.tree.d <- rpart(ALIGN~., training, minsplit = 15, cp = 0.99)
+time.rpart.ms20 = Sys.time() - time.rpart.ms20
+time.rpart.ms20
+
+
 #prunning of the tree
 prp(ci.tree.d)
 plotcp(ci.tree.d)
@@ -150,40 +168,50 @@ myclassifier_gbm <- gbm(ALIGN ~ ., data=training, distribution="gaussian",
 print(myclassifier_gbm) # show classification outcome
 summary(myclassifier_gbm)
 pred_labels6 <- predict(myclassifier_gbm, testing,n.trees = 10)   # predict labels
-round(pred_labels6)
+# round(pred_labels6)
 #ROC
 ci.tree.d.roc <- roc(pred_labels6, testing$ALIGN)
 plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
 auc(ci.tree.d.roc)
 
-#RRF
-training$ID <- factor(training$ID)
-training$ALIGN <- factor(training$ALIGN)
-training$EYE <- factor(training$EYE)
-training$HAIR <- factor(training$HAIR)
-training$SEX <- factor(training$SEX)
-training$ALIVE <- factor(training$ALIVE)
 
+#RRF
+prepare_rrf_data = function(data) {
+  data$ID <- factor(data$ID)
+  data$ALIGN <- factor(data$ALIGN)
+  data$EYE <- factor(data$EYE)
+  data$HAIR <- factor(data$HAIR)
+  data$SEX <- factor(data$SEX)
+  data$ALIVE <- factor(data$ALIVE)
+}
+data.rrf <- prepare_rrf_data(data)
+training.rrf <- data.rrf[rci>=0.33,]
+testing.rrf <- data.rrf[rci<0.33,]
+
+#~15min
 x = Sys.time()
-training <- rfImpute(ALIGN  ~ ., training)
+training.rrf <- rfImpute(ALIGN  ~ ., training.rrf)
 print(Sys.time() - x)
 
-myclassifier_rrf <- RRF(ALIGN ~ ., data=training)
+myclassifier_rrf <- RRF(ALIGN ~ ., data=training.rrf)
 print(myclassifier_rrf)                     # show classification outcome
 #summary(myclassifier_rrf)
 importance(myclassifier_rrf)                # importance of each predictor 
-pred_labels3 <- predict(myclassifier_rrf, testing)# predict labels
+pred_labels3 <- predict(myclassifier_rrf, testing.rrf)# predict labels
+summary(training.rrf$Year)
+summary(testing.rrf)
+levels(training.rrf$Year)
 
-ci.tree.d.roc <- roc(pred_labels6, testing$ALIGN)
+ci.tree.d.roc <- roc(pred_labels6, testing.rrf$ALIGN)
 plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
 auc(ci.tree.d.roc)
 
 #Regularized Discriminant Analysis
-myclassifier_rda <- rda(ALIGN ~ ., data=training)
+myclassifier_rda <- rda(ALIGN ~ ., data=training.rrf)
 print(myclassifier_rda)                     # show classification outcome
 summary(myclassifier_rda)
-pred_labels5 <- predict(myclassifier_rda, testing)   # predict labels
+pred_labels5 <- predict(myclassifier_rda, testing.rrf)   # predict labels
 
-ci.tree.d.roc <- roc(pred_labels6, testing$ALIGN)
+ci.tree.d.roc <- roc(pred_labels6, testing.rrf$ALIGN)
 plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
 auc(ci.tree.d.roc)
