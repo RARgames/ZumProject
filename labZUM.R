@@ -61,6 +61,7 @@ prepare_data = function(marvel = TRUE){
   data$GSM <- NULL
   data$APPEARANCES <- as.numeric(data$APPEARANCES)
   data$Year <- as.numeric(as.character(data$Year))
+  data <- data[data$ALIGN!='Neutral Characters',]
   
   data <- data[rowSums(is.na(data[,c('ALIGN', 'ALIVE')]) | data[,c('ALIGN', 'ALIVE')] == "") == 0,]
   
@@ -133,7 +134,8 @@ myclassifier_gbm <- gbm(ALIGN ~ ., data=training, distribution="gaussian",
 print(myclassifier_gbm) # show classification outcome
 summary(myclassifier_gbm)
 pred_labels6 <- predict(myclassifier_gbm, testing,n.trees = 10)   # predict labels
-# round(pred_labels6)
+summary(pred_labels6)
+
 #ROC
 ci.tree.d.roc <- roc(pred_labels6, testing$ALIGN)
 plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
@@ -156,6 +158,8 @@ testing.rrf <- data.rrf[rci<0.33,]
 
 # Remove NAs from data
 training.rrf <- rfImpute(ALIGN  ~ ., training.rrf)
+training.rrf <- na.roughfix(training.rrf)
+testing.rrf <- na.roughfix(testing.rrf)
 
 myclassifier_rrf <- RRF(ALIGN ~ ., data=training.rrf)
 print(myclassifier_rrf)                     # show classification outcome
@@ -163,17 +167,25 @@ print(myclassifier_rrf)                     # show classification outcome
 importance(myclassifier_rrf)                # importance of each predictor 
 pred_labels3 <- predict(myclassifier_rrf, testing.rrf)# predict labels
 
+View(pred_labels3)
+sum(is.na(pred_labels3))
+
 ci.tree.d.roc <- roc(pred_labels3, testing.rrf$ALIGN)
 plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
 auc(ci.tree.d.roc)
 
+
 #Regularized Discriminant Analysis
-myclassifier_rda <- rda(ALIGN ~ ., data=training)
+myclassifier_rda <- rda(ALIGN ~ ., data=training.rrf)
 print(myclassifier_rda)                     # show classification outcome
 summary(myclassifier_rda)
-pred_labels5 <- predict(myclassifier_rda, testing)   # predict labels
+pred_labels5 <- stats::predict(myclassifier_rda, testing.rrf)   # predict labels
 
-ci.tree.d.roc <- roc(pred_labels5, testing$ALIGN)
+View(pred_labels5$posterior)
+sum(is.na(ci.tree.d.roc))
+head(pred_labels5$posterior)
+
+ci.tree.d.roc <- roc(pred_labels5$posterior[,2], testing.rrf$ALIGN)
 plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
 auc(ci.tree.d.roc)
 
