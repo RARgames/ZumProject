@@ -119,47 +119,12 @@ unify_values <- function(data) {
 data <- rbind(prepare_data(marvel = TRUE), prepare_data(marvel = FALSE))
 data <- unify_values(data)
 
-
 #Divide data into training and testing sets
 rci <- runif(nrow(data))
 training <- data[rci>=0.33,]
 testing <- data[rci<0.33,]
 
-#Rpart Tree (cp = 0.01 minsplit = 1)
 set.seed(12354)
-
-#classifier
-time.rpart.ms20 = Sys.time()
-ci.tree.d <- rpart(ALIGN~., training, minsplit = 15, cp = 0.99)
-time.rpart.ms20 = Sys.time() - time.rpart.ms20
-time.rpart.ms20
-
-
-#prunning of the tree
-prp(ci.tree.d)
-plotcp(ci.tree.d)
-printcp(ci.tree.d)
-ci.tree.d.pruned<-prune(ci.tree.d, minsplit = 1, cp = 0.01)
-prp(ci.tree.d.pruned)
-#predicted values
-ci.tree.d.pred <- predict(ci.tree.d, testing, type="c")
-#misclassification error for given vectors of predicted and true class labels 
-err(ci.tree.d.pred, testing$ALIGN)
-#confusion matrix
-ci.tree.d.cm <- confmat(ci.tree.d.pred, testing$ALIGN)
-ci.tree.d.cm
-#complementary pairs tpr - fpr, precision - recall, sensitivity - specificity
-ci.tree.d.tpr <- tpr(ci.tree.d.cm)
-ci.tree.d.tpr
-ci.tree.d.fpr <- fpr(ci.tree.d.cm)
-ci.tree.d.fpr
-ci.tree.d.fmeasure <- f.measure(ci.tree.d.cm)
-ci.tree.d.fmeasure 
-#ROC
-ci.tree.d.prob<-predict(ci.tree.d, testing)[,2]
-ci.tree.d.roc <- roc(ci.tree.d.prob, testing$ALIGN)
-plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
-auc(ci.tree.d.roc)
 
 #GBM
 myclassifier_gbm <- gbm(ALIGN ~ ., data=training, distribution="gaussian", 
@@ -183,35 +148,63 @@ prepare_rrf_data = function(data) {
   data$HAIR <- factor(data$HAIR)
   data$SEX <- factor(data$SEX)
   data$ALIVE <- factor(data$ALIVE)
+  return(data)
 }
 data.rrf <- prepare_rrf_data(data)
 training.rrf <- data.rrf[rci>=0.33,]
 testing.rrf <- data.rrf[rci<0.33,]
 
-#~15min
-x = Sys.time()
+# Remove NAs from data
 training.rrf <- rfImpute(ALIGN  ~ ., training.rrf)
-print(Sys.time() - x)
 
 myclassifier_rrf <- RRF(ALIGN ~ ., data=training.rrf)
 print(myclassifier_rrf)                     # show classification outcome
 #summary(myclassifier_rrf)
 importance(myclassifier_rrf)                # importance of each predictor 
 pred_labels3 <- predict(myclassifier_rrf, testing.rrf)# predict labels
-summary(training.rrf$Year)
-summary(testing.rrf)
-levels(training.rrf$Year)
 
-ci.tree.d.roc <- roc(pred_labels6, testing.rrf$ALIGN)
+ci.tree.d.roc <- roc(pred_labels3, testing.rrf$ALIGN)
 plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
 auc(ci.tree.d.roc)
 
 #Regularized Discriminant Analysis
-myclassifier_rda <- rda(ALIGN ~ ., data=training.rrf)
+myclassifier_rda <- rda(ALIGN ~ ., data=training)
 print(myclassifier_rda)                     # show classification outcome
 summary(myclassifier_rda)
-pred_labels5 <- predict(myclassifier_rda, testing.rrf)   # predict labels
+pred_labels5 <- predict(myclassifier_rda, testing)   # predict labels
 
-ci.tree.d.roc <- roc(pred_labels6, testing.rrf$ALIGN)
+ci.tree.d.roc <- roc(pred_labels5, testing$ALIGN)
 plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
 auc(ci.tree.d.roc)
+
+
+#Rpart Tree (cp = 0.01 minsplit = 1)
+#classifier
+ci.tree.d <- rpart(ALIGN~., training, minsplit = 15, cp = 0.01)
+
+#prunning of the tree
+prp(ci.tree.d)
+plotcp(ci.tree.d)
+printcp(ci.tree.d)
+ci.tree.d.pruned<-prune(ci.tree.d, minsplit = 1, cp = 0.01)
+prp(ci.tree.d.pruned)
+#predicted values
+ci.tree.d.pred <- predict(ci.tree.d, testing, type="c")
+#misclassification error for given vectors of predicted and true class labels 
+err(ci.tree.d.pred, testing$ALIGN)
+#confusion matrix
+ci.tree.d.cm <- confmat(ci.tree.d.pred, testing$ALIGN)
+ci.tree.d.cm
+#complementary pairs tpr - fpr, precision - recall, sensitivity - specificity
+ci.tree.d.tpr <- tpr(ci.tree.d.cm)
+ci.tree.d.tpr
+ci.tree.d.fpr <- fpr(ci.tree.d.cm)
+ci.tree.d.fpr
+ci.tree.d.fmeasure <- f.measure(ci.tree.d.cm)
+ci.tree.d.fmeasure
+#ROC
+ci.tree.d.prob<-predict(ci.tree.d, testing)[,2]
+ci.tree.d.roc <- roc(ci.tree.d.prob, testing$ALIGN)
+plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
+auc(ci.tree.d.roc)
+
