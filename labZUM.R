@@ -1,4 +1,4 @@
-pkglist<-c("rpart", "rpart.plot", "RRF", "klaR", "gbm")
+pkglist<-c("arules", "randomForest", "rpart", "rpart.plot", "RRF", "klaR", "gbm", "readr", "dplyr")
 pkgcheck <- pkglist %in% row.names(installed.packages())
 #COMMMENT the line below if you installed packages earlier e.g on root
 for(i in pkglist[!pkgcheck]){install.packages(i,depend=TRUE)}
@@ -44,33 +44,156 @@ roc <- function(pred.s, true.y)
 }
 
 
-#Read data
-data <- read.table("marvel-wikia-data.csv", sep = ",", stringsAsFactors = TRUE)
-data <- data[rowSums(is.na(data) | data == "") == 0,]
-#Assigning names from the first row
-colnames(data) <- as.character(unlist(data[1,]))
-data = data[-1, ]
-#Remove attributes that are not needed
-data$page_id <- NULL
-data$name <- NULL
-data$urlslug <- NULL
-data$GSM <- NULL
-data$APPEARANCES <- as.numeric(data$APPEARANCES)
-data$Year <- as.numeric(data$Year)
+prepare_data = function(marvel = TRUE){
+  #Read data
+  if(marvel) {
+    data <- read.table("marvel-wikia-data.csv", sep = ",", stringsAsFactors = TRUE)
+  } else {
+    data <- read.table("dc-wikia-data.csv", sep = ",", stringsAsFactors = TRUE)
+  }
+  #Assigning names from the first row
+  colnames(data) <- as.character(unlist(data[1,]))
+  data = data[-1, ]
+  #Remove attributes that are not needed
+  data$page_id <- NULL
+  data$urlslug <- NULL
+  data$name <- NULL
+  data$GSM <- NULL
+  data$APPEARANCES <- as.numeric(data$APPEARANCES)
+  data$Year <- as.numeric(as.character(data$Year))
+  data <- data[data$ALIGN!='Neutral Characters',]
+  
+  data <- data[rowSums(is.na(data[,c('ALIGN', 'ALIVE')]) | data[,c('ALIGN', 'ALIVE')] == "") == 0,]
+  
+  # Refactor first appearance column
+  colnames(data)[colnames(data) == 'FIRST APPEARANCE'] <- 'Month'
+  # Leave only month information
+  if(marvel) {
+    format <- '%b-%y'
+  } else {
+    format <- '%Y, %B'
+  }
+  data$Month <- as.numeric(format(parse_date(as.character(data$Month), 
+                                             format = format, locale = locale('en')), '%m'))
+  
+  # Introduce new attributes
+  # Get appearances per year since introduction
+  popularity <- data$APPEARANCES/(2014-data$Year)
+  tertile <- quantile(popularity[!is.na(popularity)], c(0:3/3))
+  data$Popularity <- discretize(popularity, method = "fixed", breaks = tertile, labels = c('Low', 'Medium', 'High'))
+  
+  data$IntroducedAfter1990 <- factor(data$Year > 1990)
+  
+  return(data)
+}
 
-#TODO CHANGE TO CORRECT FACTORS
-data$`FIRST APPEARANCE`  <- NULL
+unify_values <- function(data) {
+  data$ALIGN[data$ALIGN == 'Reformed Criminals'] <- 'Good Characters'
+  
+  # Unify hair column
+  data$HAIR[data$HAIR == 'Bald'] <- 'No Hair'
+  data$HAIR[data$HAIR == 'Auburn Hair'] <- 'Red Hair'
+  data$HAIR[data$HAIR %in% c('Bronze Hair','Light Brown Hair','Reddish Brown Hair')] <- 'Brown Hair'
+  data$HAIR[data$HAIR %in% c('Gold Hair','Reddish Blond Hair','Strawberry Blond Hair',
+                             'Yellow Hair','Platinum Blond Hair')] <- 'Blond Hair'
+  levels(data$HAIR) <- c(levels(data$HAIR), 'Other')
+  data$HAIR[data$HAIR %in% c('Blue Hair','Dyed Hair','Magenta Hair','Orange-brown Hair','Orange Hair',
+                             'Pink Hair','Purple Hair','Silver Hair','Variable Hair','Violet Hair')] <- 'Other'
+  # Unify eyes column
+  data$EYE[data$EYE == 'Amber Eyes'] <- 'Brown Eyes'
+  data$EYE[data$EYE == 'Black Eyeballs'] <- 'Black Eyes'
+  data$EYE[data$EYE == 'Silver Eyes'] <- 'Grey Eyes'
+  data$EYE[data$EYE %in% c('Gold Eyes','Yellow Eyeballs')] <- 'Yellow Eyes'
+  data$EYE[data$EYE %in% c('Magenta Eyes','Pink Eyes','Violet Eyes')] <- 'Purple Eyes'
+  levels(data$EYE) <- c(levels(data$EYE), 'Other')
+  data$EYE[data$EYE %in% c('Compound Eyes', 'Multiple Eyes', 'No Eyes', 'One Eye', 'Orange Eyes', 
+                           'Variable Eyes', 'Auburn Hair', 'Photocellular Eyes')] <- 'Other'
+  # Unify sex column
+  levels(data$SEX)[levels(data$SEX) %in% c('Agender Characters', 'Genderfluid Characters', 
+                                           'Genderless Characters', 'Transgender Characters')] <- 'Other'
+  
+  # Drop unused factor levels
+  data[] <- lapply(data, function(x) if(is.factor(x)) factor(x) else x)
+  return(data)
+}
 
+data <- rbind(prepare_data(marvel = TRUE), prepare_data(marvel = FALSE))
+data <- unify_values(data)
 
 #Divide data into training and testing sets
 rci <- runif(nrow(data))
 training <- data[rci>=0.33,]
 testing <- data[rci<0.33,]
 
-#Rpart Tree (cp = 0.01 minsplit = 1)
 set.seed(12354)
+
+#GBM
+myclassifier_gbm <- gbm(ALIGN ~ ., data=training, distribution="gaussian", 
+                        bag.fraction = 0.5, n.trees = 10, interaction.depth =6, 
+                        shrinkage = 0.1, n.minobsinnode = 1)
+print(myclassifier_gbm) # show classification outcome
+summary(myclassifier_gbm)
+pred_labels6 <- predict(myclassifier_gbm, testing,n.trees = 10)   # predict labels
+summary(pred_labels6)
+
+#ROC
+ci.tree.d.roc <- roc(pred_labels6, testing$ALIGN)
+plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
+auc(ci.tree.d.roc)
+
+
+#RRF
+prepare_rrf_data = function(data) {
+  data$ID <- factor(data$ID)
+  data$ALIGN <- factor(data$ALIGN)
+  data$EYE <- factor(data$EYE)
+  data$HAIR <- factor(data$HAIR)
+  data$SEX <- factor(data$SEX)
+  data$ALIVE <- factor(data$ALIVE)
+  return(data)
+}
+data.rrf <- prepare_rrf_data(data)
+training.rrf <- data.rrf[rci>=0.33,]
+testing.rrf <- data.rrf[rci<0.33,]
+
+# Remove NAs from data
+training.rrf <- rfImpute(ALIGN  ~ ., training.rrf)
+training.rrf <- na.roughfix(training.rrf)
+testing.rrf <- na.roughfix(testing.rrf)
+
+myclassifier_rrf <- RRF(ALIGN ~ ., data=training.rrf)
+print(myclassifier_rrf)                     # show classification outcome
+#summary(myclassifier_rrf)
+importance(myclassifier_rrf)                # importance of each predictor 
+pred_labels3 <- predict(myclassifier_rrf, testing.rrf)# predict labels
+
+View(pred_labels3)
+sum(is.na(pred_labels3))
+
+ci.tree.d.roc <- roc(pred_labels3, testing.rrf$ALIGN)
+plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
+auc(ci.tree.d.roc)
+
+
+#Regularized Discriminant Analysis
+myclassifier_rda <- rda(ALIGN ~ ., data=training.rrf)
+print(myclassifier_rda)                     # show classification outcome
+summary(myclassifier_rda)
+pred_labels5 <- stats::predict(myclassifier_rda, testing.rrf)   # predict labels
+
+View(pred_labels5$posterior)
+sum(is.na(ci.tree.d.roc))
+head(pred_labels5$posterior)
+
+ci.tree.d.roc <- roc(pred_labels5$posterior[,2], testing.rrf$ALIGN)
+plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
+auc(ci.tree.d.roc)
+
+
+#Rpart Tree (cp = 0.01 minsplit = 1)
 #classifier
-ci.tree.d <- rpart(ALIGN~., training, minsplit = 1, cp = 0.01)
+ci.tree.d <- rpart(ALIGN~., training, minsplit = 15, cp = 0.01)
+
 #prunning of the tree
 prp(ci.tree.d)
 plotcp(ci.tree.d)
@@ -90,50 +213,10 @@ ci.tree.d.tpr
 ci.tree.d.fpr <- fpr(ci.tree.d.cm)
 ci.tree.d.fpr
 ci.tree.d.fmeasure <- f.measure(ci.tree.d.cm)
-ci.tree.d.fmeasure 
+ci.tree.d.fmeasure
 #ROC
 ci.tree.d.prob<-predict(ci.tree.d, testing)[,2]
 ci.tree.d.roc <- roc(ci.tree.d.prob, testing$ALIGN)
 plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
 auc(ci.tree.d.roc)
 
-#GBM
-myclassifier_gbm <- gbm(ALIGN ~ ., data=training, distribution="gaussian", 
-                        bag.fraction = 0.5, n.trees = 10, interaction.depth =6, 
-                        shrinkage = 0.1, n.minobsinnode = 1)
-print(myclassifier_gbm) # show classification outcome
-summary(myclassifier_gbm)
-pred_labels6 <- predict(myclassifier_gbm, testing,n.trees = 10)   # predict labels
-round(pred_labels6)
-#ROC
-ci.tree.d.roc <- roc(pred_labels6, testing$ALIGN)
-plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
-auc(ci.tree.d.roc)
-
-#RRF
-training$ID <- factor(training$ID)
-training$ALIGN <- factor(training$ALIGN)
-training$EYE <- factor(training$EYE)
-training$HAIR <- factor(training$HAIR)
-training$SEX <- factor(training$SEX)
-training$ALIVE <- factor(training$ALIVE)
-
-myclassifier_rrf <- RRF(ALIGN ~ ., data=training)
-print(myclassifier_rrf)                     # show classification outcome
-#summary(myclassifier_rrf)
-importance(myclassifier_rrf)                # importance of each predictor 
-pred_labels3 <- predict(myclassifier_rrf, testing)# predict labels
-
-ci.tree.d.roc <- roc(pred_labels6, testing$ALIGN)
-plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
-auc(ci.tree.d.roc)
-
-#Regularized Discriminant Analysis
-myclassifier_rda <- rda(ALIGN ~ ., data=training)
-print(myclassifier_rda)                     # show classification outcome
-summary(myclassifier_rda)
-pred_labels5 <- predict(myclassifier_rda, testing)   # predict labels
-
-ci.tree.d.roc <- roc(pred_labels6, testing$ALIGN)
-plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
-auc(ci.tree.d.roc)
