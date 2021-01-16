@@ -124,8 +124,8 @@ set.seed(12354)
 
 
 #####Rpart Tree
-ci.tree.d <- rpart(ALIGN~., training, minsplit = 15, cp = 0.01)
-prp(ci.tree.d)
+ci.tree.d <- rpart(ALIGN~., training, minsplit = 1, cp = 0.01)
+prp(ci.tree.d, main="Rpart Tree")
 plotcp(ci.tree.d)
 #Predicted values
 ci.tree.d.pred <- predict(ci.tree.d, testing, type="c")
@@ -155,7 +155,7 @@ mtext(aucText, side=3)
 #####Gradient Boosted Machine
 myclassifier_gbm <- gbm(ALIGN ~ ., data=training, distribution="gaussian", bag.fraction = 0.5, n.trees = 10, interaction.depth =6, shrinkage = 0.1, n.minobsinnode = 1)
 print(myclassifier_gbm) #Show classification outcome
-summary(myclassifier_gbm)
+summary(myclassifier_gbm, main="Most important attributes")
 pred_labels_gbm <- predict(myclassifier_gbm, testing,n.trees = 10) #Predict labels
 summary(pred_labels_gbm)
 #ROC
