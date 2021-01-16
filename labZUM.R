@@ -116,10 +116,10 @@ data <- rbind(prepare_data(marvel = TRUE), prepare_data(marvel = FALSE))
 data <- unify_values(data)
 
 #Divide data into training, testing sets and set seed
+set.seed(53490)
 rci <- runif(nrow(data))
 training <- data[rci>=0.33,]
 testing <- data[rci<0.33,]
-set.seed(12354)
 
 
 
