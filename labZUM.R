@@ -144,8 +144,10 @@ ci.tree.d.fmeasure
 #ROC
 ci.tree.d.prob <- predict(ci.tree.d, testing)[,2]
 ci.tree.d.roc <- roc(ci.tree.d.prob, testing$ALIGN)
-plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
-auc(ci.tree.d.roc)
+ci.tree.d.auc <- auc(ci.tree.d.roc)
+aucText <- paste("AUC = ", toString(round(ci.tree.d.auc, digits=4)))
+plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate", main="ROC Plot")
+mtext(aucText, side=3)
 #####
 
 
@@ -158,8 +160,10 @@ pred_labels_gbm <- predict(myclassifier_gbm, testing,n.trees = 10) #Predict labe
 summary(pred_labels_gbm)
 #ROC
 ci.tree.d.roc <- roc(pred_labels_gbm, testing$ALIGN)
-plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
-auc(ci.tree.d.roc)
+ci.tree.d.auc <- auc(ci.tree.d.roc)
+aucText <- paste("AUC = ", toString(round(ci.tree.d.auc, digits=4)))
+plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate", main="ROC Plot")
+mtext(aucText, side=3)
 #####
 
 
@@ -192,8 +196,10 @@ importance(myclassifier_rrf) #Importance of each predictor
 pred_labels_rrf <- predict(myclassifier_rrf, testing.rrf) #Predict labels
 #ROC
 ci.tree.d.roc <- roc(pred_labels_rrf, testing.rrf$ALIGN)
-plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
-auc(ci.tree.d.roc)
+ci.tree.d.auc <- auc(ci.tree.d.roc)
+aucText <- paste("AUC = ", toString(round(ci.tree.d.auc, digits=4)))
+plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate", main="ROC Plot")
+mtext(aucText, side=3)
 #####
 
 
@@ -205,6 +211,8 @@ summary(myclassifier_rda)
 pred_labels_rda <- stats::predict(myclassifier_rda, testing.rrf) #Predict labels
 #ROC
 ci.tree.d.roc <- roc(pred_labels_rda$posterior[,2], testing.rrf$ALIGN)
-plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate")
-auc(ci.tree.d.roc)
+ci.tree.d.auc <- auc(ci.tree.d.roc)
+aucText <- paste("AUC = ", toString(round(ci.tree.d.auc, digits=4)))
+plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate", main="ROC Plot")
+mtext(aucText, side=3)
 #####
