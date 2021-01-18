@@ -1,5 +1,4 @@
 require(arules)
-require(randomForest)
 require(rpart)
 require(rpart.plot)
 require(RRF)
@@ -40,6 +39,28 @@ roc <- function(pred.s, true.y)
     fn <- fn-p
   }
   rt <- rbind(rt, data.frame(tpr=tp/(tp+fn), fpr=fp/(fp+tn), cutoff=cutoff))
+}
+
+roc.rf <- function(pred.s, true.y)
+{
+  cutoff <- Inf  #Start with all instances classified as negative
+  tp <- fp <- 0
+  tn <- sum(2-as.integer(true.y))  #All negative instances
+  fn <- sum(as.integer(true.y)-1)  #All positive instances
+  rt <- data.frame()
+  
+  sord <- order(pred.s, decreasing=TRUE)  #Score ordering
+  for (i in 1:length(sord))
+  {
+    rt <- rbind(rt, data.frame(tpr=tp/(tp+fn), fpr=fp/(fp+tn)))
+    p <- as.integer(true.y[sord[i]])-1  #Next positive classified as positive
+    n <- 2-as.integer(true.y[sord[i]])  #Next negative classified as positive
+    tp <- tp+p
+    fp <- fp+n
+    tn <- tn-n
+    fn <- fn-p
+  }
+  rt <- rbind(rt, data.frame(tpr=tp/(tp+fn), fpr=fp/(fp+tn)))
 }
 
 prepare_data = function(marvel = TRUE)
@@ -182,20 +203,20 @@ data.rrf <- prepare_rrf_data(data)
 training.rrf <- data.rrf[rci>=0.33,]
 testing.rrf <- data.rrf[rci<0.33,]
 #Remove NAs from data
-training.rrf <- rfImpute(ALIGN  ~ ., training.rrf)
-training.rrf <- na.roughfix(training.rrf)
-testing.rrf <- na.roughfix(testing.rrf)
-
-
+training.rrf <- rrfImpute(ALIGN  ~ ., training.rrf)
+testing.rrf <- rrfImpute(ALIGN  ~ ., testing.rrf)
+training.rrf.rough <- na.roughfix(training.rrf)
+testing.rrf.rough <- na.roughfix(testing.rrf)
 
 #####Regularized Random Forest
+set.seed(53490)
 myclassifier_rrf <- RRF(ALIGN ~ ., data=training.rrf)
 print(myclassifier_rrf) #Show classification outcome
 summary(myclassifier_rrf)
-importance(myclassifier_rrf) #Importance of each predictor 
+varImpPlot(myclassifier_rrf) #Importance of each predictor 
 pred_labels_rrf <- predict(myclassifier_rrf, testing.rrf) #Predict labels
 #ROC
-ci.tree.d.roc <- roc(pred_labels_rrf, testing.rrf$ALIGN)
+ci.tree.d.roc <- roc.rf(pred_labels_rrf, testing.rrf$ALIGN)
 ci.tree.d.auc <- auc(ci.tree.d.roc)
 aucText <- paste("AUC = ", toString(round(ci.tree.d.auc, digits=4)))
 plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate", main="ROC Plot")
@@ -205,6 +226,7 @@ mtext(aucText, side=3)
 
 
 #####Regularized Discriminant Analysis
+set.seed(53490)
 myclassifier_rda <- rda(ALIGN ~ ., data=training.rrf)
 print(myclassifier_rda) #Show classification outcome
 summary(myclassifier_rda)
