@@ -6,6 +6,8 @@ require(klaR)
 require(gbm)
 require(readr)
 require(dplyr)
+require(mlbench)
+require(caret)
 
 tpr <- function(cm) { if (is.nan(p <- cm[2,2]/(cm[2,2]+cm[1,2]))) 1 else p }
 fpr <- function(cm) { if (is.nan(p <- cm[2,1]/(cm[2,1]+cm[1,1]))) 1 else p }
@@ -22,7 +24,7 @@ roc <- function(pred.s, true.y)
   tn <- sum(2-as.integer(true.y))  #All negative instances
   fn <- sum(as.integer(true.y)-1)  #All positive instances
   rt <- data.frame()
-  
+
   sord <- order(pred.s, decreasing=TRUE)  #Score ordering
   for (i in 1:length(sord))
   {
@@ -48,7 +50,7 @@ roc.rf <- function(pred.s, true.y)
   tn <- sum(2-as.integer(true.y))  #All negative instances
   fn <- sum(as.integer(true.y)-1)  #All positive instances
   rt <- data.frame()
-  
+
   sord <- order(pred.s, decreasing=TRUE)  #Score ordering
   for (i in 1:length(sord))
   {
@@ -82,9 +84,9 @@ prepare_data = function(marvel = TRUE)
   data$APPEARANCES <- as.numeric(data$APPEARANCES)
   data$Year <- as.numeric(as.character(data$Year))
   data <- data[data$ALIGN!='Neutral Characters',]
-  
+
   data <- data[rowSums(is.na(data[,c('ALIGN', 'ALIVE')]) | data[,c('ALIGN', 'ALIVE')] == "") == 0,]
-  
+
   #Refactor first appearance column
   colnames(data)[colnames(data) == 'FIRST APPEARANCE'] <- 'Month'
   #Leave only month information
@@ -94,13 +96,13 @@ prepare_data = function(marvel = TRUE)
     format <- '%Y, %B'
   }
   data$Month <- as.numeric(format(parse_date(as.character(data$Month), format = format, locale = locale('en')), '%m'))
-  
+
   #Introduce new attributes
   #Get appearances per year since introduction
   popularity <- data$APPEARANCES/(2014-data$Year)
   tertile <- quantile(popularity[!is.na(popularity)], c(0:3/3))
   data$Popularity <- discretize(popularity, method = "fixed", breaks = tertile, labels = c('Low', 'Medium', 'High'))
-  
+
   data$IntroducedAfter1990 <- factor(data$Year > 1990)
 
   return(data)
@@ -129,7 +131,7 @@ unify_values <- function(data)
   levels(data$SEX)[levels(data$SEX) %in% c('Agender Characters', 'Genderfluid Characters', 'Genderless Characters', 'Transgender Characters')] <- 'Other'
   #Drop unused factor levels
   data <- droplevels(data)
-  
+
   return(data)
 }
 
@@ -150,7 +152,7 @@ prp(ci.tree.d, main="Rpart Tree")
 plotcp(ci.tree.d)
 #Predicted values
 ci.tree.d.pred <- predict(ci.tree.d, testing, type="c")
-#Misclassification error for given vectors of predicted and true class labels 
+#Misclassification error for given vectors of predicted and true class labels
 err(ci.tree.d.pred, testing$ALIGN)
 #Confusion matrix
 ci.tree.d.cm <- confmat(ci.tree.d.pred, testing$ALIGN)
@@ -203,17 +205,15 @@ data.rrf <- prepare_rrf_data(data)
 training.rrf <- data.rrf[rci>=0.33,]
 testing.rrf <- data.rrf[rci<0.33,]
 #Remove NAs from data
-training.rrf <- rrfImpute(ALIGN  ~ ., training.rrf)
-testing.rrf <- rrfImpute(ALIGN  ~ ., testing.rrf)
-training.rrf.rough <- na.roughfix(training.rrf)
-testing.rrf.rough <- na.roughfix(testing.rrf)
+training.rrf <- na.roughfix(training.rrf)
+testing.rrf <- na.roughfix(testing.rrf)
 
 #####Regularized Random Forest
 set.seed(53490)
 myclassifier_rrf <- RRF(ALIGN ~ ., data=training.rrf)
 print(myclassifier_rrf) #Show classification outcome
 summary(myclassifier_rrf)
-varImpPlot(myclassifier_rrf) #Importance of each predictor 
+varImpPlot(myclassifier_rrf) #Importance of each predictor
 pred_labels_rrf <- predict(myclassifier_rrf, testing.rrf) #Predict labels
 #ROC
 ci.tree.d.roc <- roc.rf(pred_labels_rrf, testing.rrf$ALIGN)
@@ -234,7 +234,23 @@ pred_labels_rda <- stats::predict(myclassifier_rda, testing.rrf) #Predict labels
 #ROC
 ci.tree.d.roc <- roc(pred_labels_rda$posterior[,2], testing.rrf$ALIGN)
 ci.tree.d.auc <- auc(ci.tree.d.roc)
+#Plot ROC
 aucText <- paste("AUC = ", toString(round(ci.tree.d.auc, digits=4)))
 plot(ci.tree.d.roc$fpr, ci.tree.d.roc$tpr, type="l", xlab="FP rate", ylab="TP rate", main="ROC Plot")
 mtext(aucText, side=3)
 #####
+
+
+#####Finding data correlation and redundant attributes
+control <- trainControl(method="repeatedcv", number=10, repeats=3)
+model <- train(ALIGN~., data=training.rrf.rough, method="lvq", preProcess="scale", trControl=control)
+importance <- varImp(model, scale=FALSE)
+
+#####Correlation matrix
+corr.data = na.roughfix(data[,-2])
+for (i in 1:ncol(corr.data)){
+  corr.data[,i] = as.numeric(corr.data[,i])
+}
+correlationMatrix <- cor(corr.data)
+print(correlationMatrix)
+highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.5)
